@@ -9,6 +9,7 @@ Even if I said before that was specifically for my future distro I want all Giro
 >
 > Use it with caution, especially when performing file operations on important data.
 
+
 ## Disclaimer
 
 *Wayland ONLY* running this on X11 or other desktop environments may be impossible or cause damage. 
@@ -34,6 +35,20 @@ When opening an issue, please include:
 * Actual behavior
 * Relevant terminal output or logs
 * Screenshots, (I beg you)
+
+
+## Build
+
+*HIGHLY RECOMMENDED*
+
+```bash
+chmod +x build.sh
+./build.sh
+
+./build/myfm
+```
+(strange codename, I know)
+
 
 ## License
 
