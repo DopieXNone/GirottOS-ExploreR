@@ -1,4 +1,4 @@
-# GirottOS-Explorer
+# GirottOS-ExploreR
 
 A Linux file manager written in C for my future Arch based Linux distribution (GirottOS), featuring a familiar desktop file management experience inspired by Windows Explorer.
 Even if I said before that was specifically for my future distro I want all GirottOS' software available for other systems rather than mine.
