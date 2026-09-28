@@ -45,7 +45,7 @@ When opening an issue, please include:
 chmod +x build.sh
 ./build.sh
 
-./build/myfm
+./ExploreR
 ```
 (strange codename, I know)
 
