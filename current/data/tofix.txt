@@ -1,0 +1,7 @@
+1. now every other windows must be opened as external windows (I open the property tab and if I drag it across the desktop it must be dragged across the desktop as a separate window and not with the hole program)
+2. in right click menu remove the emojis (there won't be any icons there)
+3. large icons and details in settings doesn't work (you must restart the program for that)
+4. add configuration file in program's path
+5. replace every icon (only in file manager) with Tela Icon Theme. Update the readme for credits. Keep the emoji switch
+
+FOR BUILD.SH: add an if where it checks if tela-icon-theme is installed. If not installs it with yay or paru

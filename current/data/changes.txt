@@ -1,0 +1,368 @@
+ExploreR / MyFM - bug fixes (2026-10-10)
+=========================================
+
+All fixes are in src/main.c unless noted otherwise. The original file was
+backed up before editing. ./build.sh builds with no warnings (with and
+without poppler-glib).
+
+
+DATA SAFETY
+-----------
+1.  Delete / Shift+Delete / Ctrl+X / F2 worked on the Home, Desktop,
+    Documents... tiles shown on "This PC". Those tiles are real folders,
+    so Shift+Delete there permanently deleted e.g. ~/Documents, and the
+    right-click menu offered Cut / Rename / Move to Recycle Bin / Delete.
+    -> new file_ops_allowed(): cut, copy, rename, trash and delete only
+       work inside a folder listing. Outside one, the tiles get the
+       reduced (drive-style) menu: Open / New window / Terminal /
+       Properties.
+
+2.  Cut + Paste into the folder the file is already in "moved" it to a
+    "name (Copy).ext" name, so the file got renamed. Now it does nothing,
+    like Explorer.
+
+3.  Cut + Paste of a FOLDER onto another filesystem/drive always failed:
+    g_file_move() reports G_IO_ERROR_WOULD_RECURSE there, but only
+    NOT_SUPPORTED triggered the copy+delete fallback. Both are handled
+    now. If the copy works but the original can't be deleted, it is
+    reported as an error instead of a success.
+
+4.  The internal cut/copy list was never cleared when another program
+    (or another MyFM window) put something new on the clipboard, so
+    Ctrl+V kept pasting the files copied earlier in MyFM instead of the
+    clipboard's current content. MyFM now listens to the clipboard's
+    "changed" signal and drops its own list when it no longer owns the
+    clipboard. The Paste button's enabled state also updates live now
+    (before, it only updated when the selection changed).
+
+5.  After Cut + Paste, the moved files stayed on the system clipboard, so
+    the next paste tried to copy them from their old location and showed
+    "Some items could not be copied". The clipboard is now cleared once
+    everything that was cut has been moved.
+
+6.  Dragging a file a little and dropping it on the same folder view (or
+    onto itself) created "(Copy)" duplicates, or showed a "could not be
+    copied" error when a folder was dropped on itself. Drops onto the
+    item's own folder, or onto the item itself, now do nothing. (Pasting
+    into the same folder still makes a "(Copy)", like Explorer.)
+
+
+FILE OPERATIONS / FEATURES
+--------------------------
+7.  "Paste into folder" (right-click on a folder) pasted into the CURRENT
+    folder instead of the clicked one. Added myfm_paste_into(st, dest).
+
+8.  Files coming from other apps (clipboard / drag-and-drop) that are not
+    local (no path, e.g. sftp://, gvfs) were always rejected. They are
+    now copied through GIO. Broken symlinks on the clipboard are no
+    longer reported as "no longer exist".
+
+9.  Pasting files copied in another app read the clipboard asynchronously
+    and then used the window's state even if the window had been closed
+    meanwhile (use-after-free). Now uses a weak pointer to the window.
+    It also no longer starts a read when the clipboard holds no files.
+
+10. Recycle Bin: item URIs were built as "trash:///" + name without
+    escaping, so Restore / Delete permanently failed for names with
+    spaces, '%', '#', etc. Now uses g_file_get_child() + g_file_get_uri().
+
+11. Recycle Bin: Restore failed when the original parent folder no longer
+    existed. The parent folder is recreated first.
+
+12. "Open in terminal": every terminal was started with
+    "--working-directory DIR", which konsole, kitty and wezterm don't
+    understand. Each terminal now gets its own correct option, and the
+    process is also started with DIR as its working directory.
+    G_SPAWN_DO_NOT_REAP_CHILD was used without a child watch, so every
+    terminal launch left a zombie process; removed.
+
+13. "Open with...": apps were launched with no launch context, so on
+    Wayland they got no xdg-activation token and often opened behind
+    the window. Now uses the display's GdkAppLaunchContext.
+
+14. Shift+Click range selection is mentioned in the code but was never
+    implemented: Shift+Click acted like a plain click. Added
+    select_range() with an anchor (Ctrl+Shift+Click adds the range to the
+    current selection).
+
+
+NAVIGATION
+----------
+15. Breadcrumbs: any path that merely started with the home path was
+    treated as inside Home, e.g. /home/user2 with HOME=/home/user showed
+    "Home > 2" and that crumb pointed to the nonexistent /home/user/2.
+    Now a real path-component check.
+
+16. Back/Forward moved the history position before checking that the
+    folder still exists. When it had been deleted, an error appeared but
+    the history position no longer matched what was on screen.
+
+17. From This PC / Recycle Bin, Back skipped the folder you came from
+    (it went two steps back). It now returns to that folder. The Back/Up
+    buttons are also updated when entering This PC / Recycle Bin (Up
+    stayed enabled there).
+
+18. Typing "This PC" / "Recycle Bin" in the address bar (the text it shows
+    on those pages) and pressing Enter gave "Location unavailable". Now
+    it opens those pages. Leaving the address bar there also restores
+    that text instead of keeping what was typed.
+
+19. Address-bar suggestions could not be clicked with the mouse: the
+    click moved focus off the entry, whose focus-leave handler closed
+    the popover before the click registered. The suggestion buttons no
+    longer take focus on click.
+
+20. Unplugging or unmounting a drive while viewing a folder on it left a
+    dead listing on screen. The window now goes to This PC. Also listens
+    for "volume-removed" so This PC refreshes when a volume goes away.
+
+21. Starting with a file argument ("ExploreR file.txt" / "Open with")
+    opened the home folder. It now opens the folder that contains the
+    file.
+
+
+VIEW / UI
+---------
+22. Every background change in the folder (file monitor, a download in
+    progress...), F5, sorting, switching list/grid or typing in Search
+    rebuilt the view and lost the selection, scroll position and preview,
+    and replayed the fade-in animation (flicker). A refresh of the same
+    folder now keeps the selection and scroll position and skips the
+    animations.
+
+23. The preview pane re-read the file (and re-rendered PDFs) on every
+    selection update, including each mouse move of a rubber-band drag.
+    It now only reloads when the previewed file changes, or when the
+    folder is refreshed.
+
+24. Preview pane showed a file icon for folders. Now a folder icon.
+
+25. Properties: after changing permissions, the "Mode" value (e.g. 0644)
+    was not updated.
+
+26. The folder change fade animation only ran the first time: the
+    "anim-fade-in" class stayed on the view and overrode later fades.
+
+27. Popovers attached to the window (address-bar suggestions, any open
+    context menu) were never unparented, so GTK leaked them and warned
+    when a window closed. The window's "destroy" handler now unparents
+    them. It also stops the folder monitor, the in-progress listing and
+    the volume-monitor handlers right away instead of at finalize.
+
+
+BUILD
+-----
+28. meson.build listed src/ui.c, dialogs.c, navigation.c, properties.c and
+    animations.c, which don't exist any more (everything is in main.c),
+    so a meson build could not work. It now builds src/main.c and, like
+    build.sh, enables PDF previews when poppler-glib is installed.
+    (meson is not installed on this machine, so this was not test-run.)
+
+
+NOT CHANGED (noted only)
+------------------------
+- The Wayland error message in main() is in Italian while the rest of the
+  UI is in English.
+- data/myfm.desktop runs "myfm" (the meson target name). build.sh produces
+  "./ExploreR".
+- In list view, the column headers are slightly offset from the row
+  columns when selection checkboxes are on (cosmetic).
+
+
+=====================================================================
+ROUND 2 - Windows 10 GUI, file split, settings (2026-10-10)
+=====================================================================
+
+SOURCE LAYOUT
+-------------
+The single 6700-line src/main.c is split into:
+  src/myfm.h      shared types (AppState, settings, enums) and prototypes
+  src/main.c      entry point + file-manager logic: folder listing, file
+                  operations, This PC, Recycle Bin, navigation, selection,
+                  drive hot-plug
+  src/gui.c       everything visual: theme engine (CSS), icons, dialogs,
+                  properties dialog, preview pane, address bar, keyboard
+                  shortcuts, main window layout
+  src/settings.c  persistent preferences + the Settings window
+build.sh now compiles all three files and requires GTK >= 4.12 (the code
+already used 4.12 functions, so the old ">= 4.10" check was wrong).
+meson.build lists the three files.
+
+
+NEW GUI (compact, Windows 10 File Explorer style)
+-------------------------------------------------
+- Title bar: folder icon + folder name on the left, Windows-style
+  minimize / maximize / close (square, red close on hover) on the right.
+  The button layout is forced by the app, so it no longer depends on
+  GNOME's setting (GNOME shows only "close" by default).
+- Command bar (collapsed ribbon): New, Cut, Copy, Paste, Rename, Delete,
+  Properties, Eject, Sort, View, plus a Settings gear.
+- Address row: Back / Forward / Up, breadcrumb bar with a refresh button
+  at its end, Search box. Long paths no longer widen the window: the
+  breadcrumbs are clipped and always show the deepest folders.
+- Navigation pane: Quick access, This PC, Local Disk (/), Recycle Bin.
+- Details view: 22px rows, Explorer blue hover/selection, column headers
+  aligned with the row columns (with or without check boxes).
+- Large icons view, This PC ("Folders (n)" / "Devices and drives (n)" with
+  usage bars), Recycle Bin, dialogs, Properties and the preview pane all
+  use the same compact, square style.
+- Status bar: item count, selection, preview / details / icons toggles.
+- Real icons from the installed icon theme (Adwaita, Breeze, Papirus...)
+  with an automatic emoji fallback for any icon the theme lacks, or emoji
+  only (setting).
+- Window titles are just the folder name, as in Windows 10.
+- One tile per partition on This PC: btrfs subvolumes / bind mounts of
+  the same device (/home, /var/log, /var/cache/pacman/pkg...) were each
+  shown as another drive.
+
+
+SETTINGS (src/settings.c)
+-------------------------
+Saved in ~/.config/explorer/settings.ini (XDG_CONFIG_HOME respected),
+plain GKeyFile: no GSettings schema, no dconf, works on any desktop.
+Settings window (gear button, View > Settings, or Ctrl+,):
+- Appearance: Theme (Follow system / Light / Dark / Purple (classic)),
+  Icons (System icon theme / Emoji), Animations on/off.
+  "Follow system" reads the light/dark preference that GTK gets from
+  xdg-desktop-portal (GNOME, KDE and wlroots portals all provide it) and
+  switches live when the desktop changes.
+- Window size: width / height, "Remember size on close" (also remembers
+  maximized), "Use current size", "Apply to window".
+- View: layout for new windows, hidden items, check boxes, preview pane.
+Ctrl+H, check boxes and the preview pane toggle are now remembered and
+apply to all open windows (like Explorer).
+New defaults: preview pane off, check boxes off, animations off.
+
+
+NOT DEPENDENT ON GNOME
+----------------------
+- Recycle Bin: the page only worked through "trash:///", which needs
+  GVfs (a GNOME component). Without it (KDE, Sway, Hyprland... without
+  gvfsd) it showed "Unable to open the Recycle Bin". It now falls back to
+  reading the freedesktop.org trash folder (~/.local/share/Trash)
+  directly, including Restore, Delete permanently and Empty.
+- Every widget is styled by the app's own CSS, so the look doesn't change
+  with the system GTK theme.
+- Window buttons, font fallbacks ("Segoe UI", "Noto Sans", "DejaVu Sans",
+  "Liberation Sans") and icons with fallbacks don't assume GNOME.
+
+
+data/tofix.txt - "Gdk-WARNING: Duplicate call to gdk_frame_timings_presented()"
+--------------------------------------------------------------------------------
+This message comes from GTK itself (its Wayland frame clock), when the
+compositor's presentation-time report for a frame doesn't match what GTK
+expected. It is a diagnostic, not a crash or a bug in ExploreR's logic,
+and it gets more frequent the more the window redraws.
+- The app now redraws much less (see "Less aggressive" below), which is
+  what triggered it so often.
+- main() installs a log writer that drops only that one GTK message;
+  every other warning is still printed.
+
+
+LESS AGGRESSIVE (CPU / disk / desktop)
+-------------------------------------
+Nothing in ExploreR changes system settings, icon caches or other
+programs: it only reads/writes the files you act on and its own
+settings.ini. So the icon glitches that needed reboots most likely came
+from something else on the system. Still, the app now does a lot less
+work in the background:
+- Folder listing uses the name-based "fast" content type instead of
+  reading the first bytes of every file, on every refresh.
+- Automatic refresh on folder changes: 400 ms debounce, capped at one
+  re-listing every ~2 s for folders that change constantly (downloads,
+  builds, logs). Before, the listing was rebuilt every 180 ms.
+- Drive hot-plug signals (which arrive in bursts) are merged into one
+  This PC refresh instead of one per signal.
+- No statvfs() on network filesystems (NFS, SMB, sshfs...) or GVfs FUSE
+  mounts in This PC: those calls can hang the window when a server is
+  slow or gone.
+- Animations are off by default, short (120 ms fade only), limited to
+  the first 24 rows, and also honour the desktop's "reduce animations"
+  switch (gtk-enable-animations).
+- The preview pane doesn't decode images larger than 40 MB (GtkPicture
+  does that synchronously and froze the window).
+- Address-bar suggestions stop scanning after 5000 entries.
+
+
+KEYBOARD (Explorer behaviour)
+-----------------------------
+- Backspace now goes Back (it used to go Up). Alt+Up still goes up.
+- New: Ctrl+A select all, Ctrl+Shift+N new folder, Ctrl+W close window,
+  Alt+Enter properties, Ctrl+, settings, Esc also clears the selection.
+- Ctrl shortcuts work with Caps Lock on.
+
+
+TESTED
+------
+- ./build.sh: builds with no warnings (gcc -Wall -Wextra), with and
+  without poppler-glib.
+- Rendered the window off-screen with a scratch harness (not part of the
+  project) and checked: Light, Dark and Purple themes, Details, Large
+  icons, This PC, selection with check boxes, Settings window, a confirm
+  dialog and Properties. Checked that settings.ini is written. No GTK
+  warnings at startup.
+- Not tested: KDE / wlroots sessions and a system without GVfs (the
+  trash fallback was written to the freedesktop spec but only ran on
+  GNOME here), and real drive hot-plug.
+
+
+=====================================================================
+ROUND 3 - data/tofix.txt todo list (2026-10-10)
+=====================================================================
+
+1. Every secondary window is a separate window
+   Properties, Settings, Open with, and all dialogs (rename, new folder,
+   delete / trash confirmations, errors) are no longer "transient for"
+   the main window and no longer modal. GNOME (Mutter) attaches modal
+   transient dialogs to their parent, which is why dragging Properties
+   dragged the whole program. Each one now has its own title bar
+   (title left, close right) so it can be moved anywhere on the desktop.
+   They are registered with the application (same taskbar group), and a
+   window opened *from* a file-manager window still closes when that
+   window closes (myfm_window_set_owner), so no dialog can act on a window
+   that no longer exists. Settings stays open on its own.
+
+2. Right-click (and all other) menus are text only
+   myfm_menu_row() ignores the icon argument; menus have no emoji.
+
+3. Details / Large icons from Settings works immediately
+   The setting used to only affect new windows. Changing it in Settings,
+   the View menu or the status-bar buttons now applies to every open
+   window right away and is remembered. The Settings window also
+   updates its switches when Ctrl+H, check boxes, preview or layout are
+   changed elsewhere.
+
+4. Configuration file in the program's folder
+   settings.ini is now stored next to the ExploreR executable
+   (e.g. myfm/settings.ini). It is created on first start, and the old
+   ~/.config/explorer/settings.ini is imported if present. If the
+   program's folder isn't writable (installed in /usr/bin...) it falls
+   back to ~/.config/explorer/settings.ini. The Settings window shows
+   which file is used.
+
+5. Tela icon theme
+   File, folder, drive, sidebar, This PC, Recycle Bin, preview and
+   Properties icons come from Tela through a private GtkIconTheme. Only
+   the file manager uses it: the desktop's icon theme and GTK's own icons
+   (window buttons, arrows) are not changed. Icons that Tela doesn't ship
+   (Tela inherits Adwaita/hicolor) are not taken from those themes; they
+   fall back to emoji. The colourful scalable Tela icons are used at every
+   size (Tela's 16-24px "places" icons are monochrome panel icons).
+   Settings > Icons: "Tela" / "Emoji" (the emoji switch is kept; the
+   old value "system" in settings.ini is read as "tela").
+   README.md: new Configuration and Credits sections (Tela icon theme by
+   vinceliuice, GPL-3.0).
+
+build.sh
+   Checks for Tela (/usr/share/icons/Tela, ~/.local/share/icons/Tela,
+   ~/.icons/Tela or the tela-icon-theme pacman package). If missing it
+   runs "yay -S --needed tela-icon-theme", or paru if yay is not there.
+   If neither exists, or the install fails, it prints a link and still
+   builds (the program then shows emoji icons).
+
+Tested: ./build.sh builds with no warnings and detects the installed
+Tela; off-screen renders of the list with Tela icons and of a
+confirmation dialog in its own titled window; settings.ini created next
+to ExploreR, with the old ~/.config preferences imported. No GTK warnings
+at startup. Not tested: build.sh's yay/paru install path (Tela was
+already installed), and actually dragging windows on GNOME.
