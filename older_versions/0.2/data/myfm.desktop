@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+GenericName=File Manager
+Comment=Browse and manage your files
+Exec=myfm %U
+Icon=system-file-manager
+Terminal=false
+Categories=System;FileTools;FileManager;GTK;
+MimeType=inode/directory;
+StartupNotify=true
+Keywords=files;folders;explorer;manager;
